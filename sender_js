@@ -1,0 +1,88 @@
+let audioContext;
+let analyser;
+let dataArray;
+let ws;
+
+let audioStarted = false;
+let lastSend = 0;
+let lastVolume = 0;
+
+// WebSocket 연결
+ws = new WebSocket("ws://localhost:8080");
+
+ws.onopen = () => console.log("WS connected");
+ws.onerror = () => console.log("❌ WS ERROR");
+ws.onclose = () => console.log("🔄 WS CLOSED");
+
+// 화면 터치 시 모든 기능 시작
+document.body.addEventListener("click", startAll);
+document.body.addEventListener("touchstart", startAll);
+
+async function startAll() {
+  if (audioStarted) return;
+  audioStarted = true;
+
+  document.getElementById("msg").innerHTML = "🎤 마이크 활성화됨…";
+
+  await startMic();
+}
+
+
+// 마이크, 오디오 분석
+async function startMic() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(stream);
+
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+
+    dataArray = new Uint8Array(analyser.frequencyBinCount);
+    source.connect(analyser);
+
+    loop(); // 볼륨 분석 시작
+
+  } catch (err) {
+    console.error("Mic error:", err);
+  }
+}
+
+
+
+// 메인 루프 (볼륨 측정)
+function loop() {
+  requestAnimationFrame(loop);
+
+  analyser.getByteTimeDomainData(dataArray);
+
+  // 볼륨 계산
+  let sum = 0;
+  for (let i = 0; i < dataArray.length; i++) {
+    let v = (dataArray[i] - 128) / 128;
+    sum += v * v;
+  }
+  let volume = Math.sqrt(sum / dataArray.length);
+
+  // 스무딩
+  let smooth = volume * 0.7 + lastVolume * 0.3 || volume;
+  lastVolume = smooth;
+
+  // 디버그용
+  console.log("VOL:", volume, "SMOOTH:", smooth);
+
+  // 100ms마다 전송
+  if (audioStarted && ws.readyState === WebSocket.OPEN) {
+    let now = performance.now();
+    if (now - lastSend > 100) {
+      ws.send(JSON.stringify({
+        type: "audio",
+        volume: volume,
+        smooth: smooth
+      }));
+
+      lastSend = now;
+    }
+  }
+}
