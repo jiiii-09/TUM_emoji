@@ -77,10 +77,11 @@ function loop() {
     let now = performance.now();
     if (now - lastSend > 100) {
       ws.send(JSON.stringify({
-        type: "audio",
-        volume: volume,
-        smooth: smooth
-      }));
+  type: "audio",
+  volume: volume,
+  smooth: smooth,
+  waveform: Array.from(dataArray)
+}));
 
       lastSend = now;
     }
